@@ -1,0 +1,19 @@
+{
+  "corpus": "Islam",
+  "version": "0.1.0",
+  "sources": [
+    {
+      "source_id": "quran_primary_ar",
+      "title": "Quran",
+      "text_type": "primary_scripture",
+      "language": "Arabic",
+      "tradition": "Islam",
+      "author": null,
+      "translator": null,
+      "edition": null,
+      "source_url": null,
+      "copyright_status": "to_be_verified",
+      "notes": "Primary Arabic text. Source and edition must be verified before ingestion."
+    }
+  ]
+}

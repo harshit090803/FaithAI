@@ -1,0 +1,24 @@
+{
+  "version": "1.0.0",
+  "sources": [
+    {
+      "source_id": "quran_arabic_test",
+      "religion": "islam",
+      "tradition": "islam",
+      "title": "Qur'an",
+      "book": "Qur'an",
+      "language": "Arabic",
+      "original_language": "Arabic",
+      "author": null,
+      "translator": null,
+      "edition": null,
+      "publication": null,
+      "source_url": null,
+      "source_type": "primary_source",
+      "copyright_status": "test",
+      "license": null,
+      "provenance": "FaithAI test source",
+      "notes": null
+    }
+  ]
+}
