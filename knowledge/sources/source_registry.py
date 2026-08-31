@@ -1,212 +1,214 @@
-import json
-from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
-
-@dataclass
-class SourceRecord:
-    """
-    Describes the origin and provenance of a religious source.
-
-    This metadata is kept separate from the actual religious text.
-    """
-
-    source_id: str
-    religion: str
-    tradition: str
-
-    title: str
-    book: Optional[str] = None
-
-    language: Optional[str] = None
-    original_language: Optional[str] = None
-
-    author: Optional[str] = None
-    translator: Optional[str] = None
-
-    edition: Optional[str] = None
-    publication: Optional[str] = None
-
-    source_url: Optional[str] = None
-
-    source_type: str = "primary_source"
-
-    copyright_status: Optional[str] = None
-    license: Optional[str] = None
-
-    provenance: Optional[str] = None
-
-    notes: Optional[str] = None
+from .religious_source import ReligiousSource
 
 
 class SourceRegistry:
     """
-    Registry for all FaithAI religious sources.
-
-    Example:
-
-        registry = SourceRegistry(
-            "data/islam/source_registry.json"
-        )
-
-        registry.add_source(
-            SourceRecord(...)
-        )
-
-        registry.save()
+    Registry containing all sources used by FaithAI.
     """
 
-    def __init__(self, registry_path: str):
-        self.registry_path = Path(registry_path)
-        self.sources: dict[str, SourceRecord] = {}
+    def __init__(self) -> None:
+        self.sources: Dict[str, ReligiousSource] = {}
 
-        if self.registry_path.exists():
-            self.load()
+    # =========================================================
+    # Add / Update / Remove
+    # =========================================================
 
-    def add_source(self, source: SourceRecord) -> None:
-        """
-        Add a source to the registry.
-
-        Raises:
-            ValueError: if source_id already exists.
-        """
+    def add_source(
+        self,
+        source: ReligiousSource,
+    ) -> None:
+        """Add a new source."""
 
         if source.source_id in self.sources:
             raise ValueError(
-                f"Source already exists: "
-                f"{source.source_id}"
+                f"Source already exists: {source.source_id}"
             )
 
         self.sources[source.source_id] = source
 
-    def update_source(self, source: SourceRecord) -> None:
-        """
-        Update an existing source.
-        """
+    def update_source(
+        self,
+        source: ReligiousSource,
+    ) -> None:
+        """Update an existing source."""
 
         if source.source_id not in self.sources:
             raise KeyError(
-                f"Source not found: "
-                f"{source.source_id}"
+                f"Source does not exist: {source.source_id}"
             )
 
         self.sources[source.source_id] = source
 
-    def get_source(
-        self,
-        source_id: str
-    ) -> SourceRecord:
-        """
-        Retrieve a source by source_id.
-        """
-
-        if source_id not in self.sources:
-            raise KeyError(
-                f"Source not found: {source_id}"
-            )
-
-        return self.sources[source_id]
-
     def remove_source(
         self,
-        source_id: str
+        source_id: str,
     ) -> None:
-        """
-        Remove a source from the registry.
-        """
+        """Remove a source."""
 
         if source_id not in self.sources:
             raise KeyError(
-                f"Source not found: {source_id}"
+                f"Source does not exist: {source_id}"
             )
 
         del self.sources[source_id]
 
-    def list_sources(self) -> list[SourceRecord]:
-        """
-        Return all registered sources.
-        """
+    # =========================================================
+    # Retrieval
+    # =========================================================
 
-        return list(self.sources.values())
+    def get_source(
+        self,
+        source_id: str,
+    ) -> Optional[ReligiousSource]:
+        """Retrieve a source by ID."""
 
-    def save(self) -> None:
-        """
-        Save registry to JSON.
-        """
+        return self.sources.get(source_id)
 
-        self.registry_path.parent.mkdir(
-            parents=True,
-            exist_ok=True
-        )
+    # =========================================================
+    # Filtering
+    # =========================================================
 
-        data = {
-            "version": "1.0.0",
-            "sources": [
-                asdict(source)
-                for source in self.sources.values()
-            ]
+    def list_by_type(
+        self,
+        source_type: str,
+    ) -> List[ReligiousSource]:
+        """Return sources of a particular type."""
+
+        source_type = source_type.strip().lower()
+
+        return [
+            source
+            for source in self.sources.values()
+            if source.source_type.lower() == source_type
+        ]
+
+    def list_by_religion(
+        self,
+        religion: str,
+    ) -> List[ReligiousSource]:
+        """Return sources associated with a religion."""
+
+        religion = religion.strip().lower()
+
+        return [
+            source
+            for source in self.sources.values()
+            if source.religion
+            and source.religion.lower() == religion
+        ]
+
+    def list_by_language(
+        self,
+        language: str,
+    ) -> List[ReligiousSource]:
+        """Return sources available in a language."""
+
+        language = language.strip().lower()
+
+        return [
+            source
+            for source in self.sources.values()
+            if source.language
+            and source.language.lower() == language
+        ]
+
+    # =========================================================
+    # Statistics
+    # =========================================================
+
+    def statistics(self) -> Dict[str, int]:
+        """Return basic source statistics."""
+
+        return {
+            "total_sources": len(self.sources)
         }
 
-        with self.registry_path.open(
-            "w",
-            encoding="utf-8"
-        ) as file:
 
-            json.dump(
-                data,
-                file,
-                ensure_ascii=False,
-                indent=2
-            )
-
-    def load(self) -> None:
-        """
-        Load registry from JSON.
-        """
-
-        with self.registry_path.open(
-            "r",
-            encoding="utf-8"
-        ) as file:
-
-            data = json.load(file)
-
-        self.sources.clear()
-
-        for item in data.get("sources", []):
-
-            source = SourceRecord(**item)
-
-            self.sources[source.source_id] = source
-
+# =============================================================
+# Demonstration
+# =============================================================
 
 if __name__ == "__main__":
 
-    registry = SourceRegistry(
-        "data/islam/source_registry.json"
-    )
+    registry = SourceRegistry()
 
-    test_source = SourceRecord(
-        source_id="quran_arabic_test",
+    quran = ReligiousSource(
+        source_id="islam.scripture.quran",
+        title="The Qur'an",
+        source_type="scripture",
         religion="islam",
         tradition="islam",
-        title="Qur'an",
-        book="Qur'an",
         language="Arabic",
-        original_language="Arabic",
-        source_type="primary_source",
-        copyright_status="test",
-        provenance="FaithAI test source",
+        copyright_status="Source text status to be verified",
+        description=(
+            "Primary Islamic scripture represented "
+            "as a source record."
+        ),
+        tags=[
+            "quran",
+            "scripture",
+            "islam",
+        ],
     )
 
-    if test_source.source_id not in registry.sources:
-        registry.add_source(test_source)
+    registry.add_source(quran)
 
-    registry.save()
+    english_translation = ReligiousSource(
+        source_id="islam.translation.example_english",
+        title="Example English Translation",
+        source_type="translation",
+        religion="islam",
+        tradition="islam",
+        language="English",
+        translator="To be specified",
+        copyright_status="To be verified",
+        description=(
+            "Placeholder translation record. "
+            "Do not populate with copyrighted text "
+            "until redistribution rights are verified."
+        ),
+        tags=[
+            "quran",
+            "translation",
+            "english",
+        ],
+    )
 
-    print("Source registry created successfully.")
+    registry.add_source(english_translation)
+
+    print("=" * 60)
+    print("FaithAI Source Registry")
+    print("=" * 60)
+
+    stats = registry.statistics()
+
     print(
-        f"Registered sources: "
-        f"{len(registry.list_sources())}"
+        f"Total sources: "
+        f"{stats['total_sources']}"
     )
+
+    print("\nAll sources:")
+
+    for source in registry.sources.values():
+        print(
+            f"- {source.title}"
+            f" [{source.source_type}]"
+            f" ({source.source_id})"
+        )
+
+    print("\nIslamic sources:")
+
+    for source in registry.list_by_religion("islam"):
+        print(
+            f"- {source.title}"
+            f" [{source.language}]"
+        )
+
+    print("\nScriptures:")
+
+    for source in registry.list_by_type("scripture"):
+        print(
+            f"- {source.title}"
+        )
