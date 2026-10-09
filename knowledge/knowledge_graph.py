@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional
-
+from .sources.provenance import SourceProvenance
+from .sources.provenance_registry import ProvenanceRegistry
 from .entities.religious_entity import (
     ReligiousEntity,
     ReligiousEntityRegistry,
@@ -46,6 +47,7 @@ class ReligiousKnowledgeGraph:
         self.sources = SourceRegistry()
 
         self.passages = PassageRegistry()
+        self.provenance = ProvenanceRegistry()
 
     # =========================================================
     # ENTITY OPERATIONS
@@ -90,7 +92,64 @@ class ReligiousKnowledgeGraph:
         return self.sources.get_source(
             source_id
         )
+        # =========================================================
+    # PROVENANCE OPERATIONS
+    # =========================================================
 
+    def add_provenance(
+        self,
+        provenance: SourceProvenance,
+    ) -> None:
+        """
+        Add provenance after verifying that the referenced
+        source exists.
+        """
+
+        source = self.get_source(
+            provenance.source_id
+        )
+
+        if source is None:
+            raise ValueError(
+                "Provenance references a "
+                "non-existent source: "
+                f"{provenance.source_id}"
+            )
+
+        self.provenance.add_provenance(
+            provenance
+        )
+
+    def get_provenance(
+        self,
+        provenance_id: str,
+    ) -> Optional[SourceProvenance]:
+        """
+        Retrieve provenance by ID.
+        """
+
+        return self.provenance.get_provenance(
+            provenance_id
+        )
+
+    def provenance_for_source(
+        self,
+        source_id: str,
+    ) -> List[SourceProvenance]:
+        """
+        Return all provenance records associated
+        with a source.
+        """
+
+        if self.get_source(source_id) is None:
+            raise KeyError(
+                "Source does not exist: "
+                f"{source_id}"
+            )
+
+        return self.provenance.list_by_source(
+            source_id
+        )
     # =========================================================
     # PASSAGE OPERATIONS
     # =========================================================
@@ -376,6 +435,9 @@ class ReligiousKnowledgeGraph:
             ),
             "passages": len(
                 self.passages.passages
+            ),
+            "provenance" : len(
+                self.provenance.provenance
             ),
         }
 
