@@ -11,11 +11,10 @@ from rag.retrieval.quran_repository import QuranRepository
 
 class ArabicNormalizer:
     """
-    Normalises Arabic for searching only.
+    Search-only Arabic normalisation.
 
-    The original Qur'anic text is never modified.
-    This is conservative surface-form normalisation,
-    not a complete Arabic morphological analyser.
+    Original Tanzil text is never modified.
+    Canonical forms are used only for indexing and querying.
     """
 
     DIACRITICS = re.compile(
@@ -32,6 +31,12 @@ class ArabicNormalizer:
         "ئ": "ي",
     })
 
+    # Search-only spelling mappings.
+    CANONICAL_TOKEN_FORMS = {
+        "الصلاة": "الصلوة",
+        "صلاة": "صلوة",
+    }
+
     @classmethod
     def normalize(cls, text: str) -> str:
         if not isinstance(text, str):
@@ -41,7 +46,6 @@ class ArabicNormalizer:
         text = cls.DIACRITICS.sub("", text)
         text = text.translate(cls.REPLACEMENTS)
 
-        # Preserve Arabic letters and whitespace only.
         text = re.sub(
             r"[^\u0621-\u063A\u0641-\u064A\s]",
             " ",
@@ -51,28 +55,39 @@ class ArabicNormalizer:
         return " ".join(text.split())
 
     @classmethod
+    def canonicalize_token(cls, token: str) -> str:
+        """Map reviewed spelling variants to search forms."""
+        return cls.CANONICAL_TOKEN_FORMS.get(token, token)
+
+    @classmethod
     def tokenize(cls, text: str) -> List[str]:
-        return cls.normalize(text).split()
+        normalized = cls.normalize(text)
+
+        return [
+            cls.canonicalize_token(token)
+            for token in normalized.split()
+        ]
 
 
 class QuranLexicalRetriever:
     """
-    Lightweight lexical retriever for the Arabic Qur'an corpus.
+    Lightweight Arabic lexical retriever for the Qur'an corpus.
 
     Features:
-    - Inverted index
-    - Arabic diacritic normalisation
-    - Conservative attached-prefix handling
-    - Cached document tokens and term frequencies
+    - Search-only Arabic normalisation
+    - Explicit canonical spelling forms
+    - Conservative attached-prefix variants
+    - Inverted index and cached term frequencies
+    - Precomputed document-token variant mappings
     - IDF-weighted lexical scoring
-    - Evidence results with citations
+    - Controlled query expansion
+    - Cited evidence results
 
-    Important:
-    This implementation does not perform complete Arabic stemming,
-    root extraction, or theological interpretation.
+    This is not a full Arabic morphological analyser.
+    Expansion weights are heuristic retrieval signals,
+    not theological certainty or proof of synonymy.
     """
 
-    # Longer prefixes must be checked before shorter prefixes.
     PREFIXES = (
         "وال",
         "بال",
@@ -88,10 +103,42 @@ class QuranLexicalRetriever:
         "ل",
     )
 
-    def __init__(
-        self,
-        repository=None,
-    ):
+    # Prototype search expansions.
+    # These are retrieval hints, not exact synonym declarations.
+    # Weights require evaluation against reviewed relevance judgments.
+    QUERY_EXPANSIONS = {
+        "الشدة": {
+            "المصيبة": 0.45,
+            "الباساء": 0.45,
+            "الضراء": 0.45,
+            "العسر": 0.45,
+            "البلاء": 0.35,
+            "الابتلاء": 0.35,
+            "تبلون": 0.35,
+            "يخفف": 0.30,
+            "الخوف": 0.25,
+            "الجوع": 0.25,
+            "النقص": 0.25,
+            "تصبروا": 0.25,
+        },
+        "المغفرة": {
+            "مغفرة": 0.45,
+            "غفور": 0.40,
+            "غفورا": 0.40,
+            "استغفروا": 0.40,
+            "يستغفر": 0.40,
+            "يستغفروا": 0.40,
+            "يغفر": 0.40,
+            "العفو": 0.35,
+            "عفوا": 0.35,
+            "العافين": 0.35,
+            "ليعفوا": 0.35,
+            "ليصفحوا": 0.35,
+            "الصفح": 0.30,
+        },
+    }
+
+    def __init__(self, repository=None):
         self.repository = repository or QuranRepository()
 
         self.inverted_index: Dict[str, Set[str]] = defaultdict(set)
@@ -99,6 +146,11 @@ class QuranLexicalRetriever:
         self.document_lengths: Dict[str, int] = {}
         self.document_tokens: Dict[str, List[str]] = {}
         self.term_frequencies: Dict[str, Counter] = {}
+
+        # IMPORTANT: initialise this BEFORE _build_index().
+        self.document_variant_tokens: Dict[
+            str, Dict[str, Set[str]]
+        ] = {}
 
         self._build_index()
 
@@ -113,44 +165,42 @@ class QuranLexicalRetriever:
     @classmethod
     def _token_variants(cls, token: str) -> Set[str]:
         """
-        Generate conservative search variants.
+        Generate conservative attached-prefix variants.
 
         Example:
-            بالصبر -> {بالصبر, الصبر, صبر}
+            بالصبر -> {"بالصبر", "صبر"}
 
-        These variants improve surface-form matching. They do not
-        establish that two forms are grammatically interchangeable.
+        These are search variants, not a guarantee that
+        every generated form is grammatically equivalent.
         """
         variants = {token}
         current = token
 
-        # Remove an attached prefix iteratively, but conservatively.
-        # A minimum remaining length avoids stripping tiny fragments.
-        changed = True
-
-        while changed:
-            changed = False
+        while True:
+            matched_prefix = None
 
             for prefix in cls.PREFIXES:
                 if (
                     current.startswith(prefix)
                     and len(current) - len(prefix) >= 3
                 ):
-                    current = current[len(prefix):]
-                    variants.add(current)
-                    changed = True
+                    matched_prefix = prefix
                     break
 
-        # Include the form without the definite article.
-        if current.startswith("ال") and len(current) > 4:
-            variants.add(current[2:])
+            if matched_prefix is None:
+                break
+
+            current = current[len(matched_prefix):]
+            variants.add(current)
 
         return variants
 
     def _build_index(self) -> None:
-        """Build the inverted index once and cache document statistics."""
+        """Build search indexes without modifying source passages."""
         for passage in self.repository.all():
             passage_id = passage.passage_id
+
+            # Search-normalized tokens; source text remains untouched.
             tokens = ArabicNormalizer.tokenize(passage.text)
             frequencies = Counter(tokens)
 
@@ -158,81 +208,79 @@ class QuranLexicalRetriever:
             self.term_frequencies[passage_id] = frequencies
             self.document_lengths[passage_id] = len(tokens)
 
-            # Index each document once per searchable variant.
             indexed_terms = set()
+            variant_to_tokens = defaultdict(set)
 
-            for token in tokens:
-                indexed_terms.update(self._token_variants(token))
+            # Build each document's variant map and index terms.
+            for token in frequencies:
+                variants = self._token_variants(token)
+                indexed_terms.update(variants)
 
+                for variant in variants:
+                    # Add the individual token, not the whole tokens list.
+                    variant_to_tokens[variant].add(token)
+
+            self.document_variant_tokens[passage_id] = dict(
+                variant_to_tokens
+            )
+
+            # Each term's document frequency increments once per passage.
             for term in indexed_terms:
                 self.inverted_index[term].add(passage_id)
                 self.document_frequency[term] += 1
 
     def _idf(self, token: str) -> float:
-        """Smoothed inverse document frequency."""
-        document_frequency = self.document_frequency.get(token, 0)
+        df = self.document_frequency.get(token, 0)
 
-        if document_frequency == 0:
+        if df == 0:
             return 0.0
 
         return math.log(
-            (self.document_count + 1)
-            / (document_frequency + 1)
+            (self.document_count + 1) / (df + 1)
         ) + 1.0
-
     def _score_document(
-        self,
-        passage_id: str,
-        query_tokens: List[str],
-    ) -> float:
-        """
-        Score a candidate using cached document tokens.
-
-        A document token contributes at most once per query token,
-        avoiding duplicate boosts from overlapping search variants.
-        """
+    self,
+    passage_id: str,
+    query_terms,
+) -> float:
         frequencies = self.term_frequencies[passage_id]
-        document_tokens = self.document_tokens[passage_id]
+        variant_map = self.document_variant_tokens[passage_id]
 
-        score = 0.0
+    # Track the strongest contribution assigned to each
+    # underlying document token.
+        token_contributions = {}
 
-        for query_token in query_tokens:
+        for query_token, query_weight in query_terms:
             query_variants = self._token_variants(query_token)
-            best_term_score = 0.0
+            matched_tokens = set()
 
-            for document_token in set(document_tokens):
-                document_variants = self._token_variants(document_token)
+            for variant in query_variants:
+                matched_tokens.update(
+                variant_map.get(variant, ())
+            )
 
-                if query_variants.isdisjoint(document_variants):
-                    continue
-
-                term_frequency = frequencies[document_token]
+            for document_token in matched_tokens:
+                tf = frequencies[document_token]
 
                 term_score = (
-                    (1.0 + math.log(term_frequency))
+                    (1.0 + math.log(tf))
                     * self._idf(document_token)
                 )
 
-                best_term_score = max(
-                    best_term_score,
-                    term_score,
+                contribution = query_weight * term_score
+
+                token_contributions[document_token] = max(
+                token_contributions.get(document_token, 0.0),
+                contribution,
                 )
 
-            score += best_term_score
-
-        return score
-
+        return sum(token_contributions.values())
     def retrieve(
         self,
         query: str,
         limit: int = 5,
+        include_expansions : bool = True,
     ) -> List[EvidenceResult]:
-        """
-        Retrieve passages matching an Arabic lexical query.
-
-        Returns:
-            EvidenceResult objects sorted by descending lexical score.
-        """
         if not isinstance(query, str):
             raise TypeError("query must be a string")
 
@@ -244,11 +292,34 @@ class QuranLexicalRetriever:
         if not query_tokens:
             return []
 
-        # Retrieve candidates through the same variant logic used
-        # during index construction and document scoring.
-        candidate_ids: Set[str] = set()
+        # Original query terms retain full weight.
+        weighted_terms = {
+            token: 1.0
+            for token in query_tokens
+        }
+        if include_expansions:
+        # Add explicitly reviewed expansion terms at lower weights.
+            for token in query_tokens:
+                expansions = self.QUERY_EXPANSIONS.get(token, {})
+            
 
-        for token in query_tokens:
+                for expansion, weight in expansions.items():
+                    normalized_terms = ArabicNormalizer.tokenize(
+                    expansion
+                )
+
+                    for normalized_term in normalized_terms:
+                        weighted_terms[normalized_term] = max(
+                        weighted_terms.get(normalized_term, 0.0),
+                        weight,
+                    )
+
+        query_terms = list(weighted_terms.items())
+
+        # Find candidate passages through the inverted index.
+        candidate_ids = set()
+
+        for token, _weight in query_terms:
             for variant in self._token_variants(token):
                 candidate_ids.update(
                     self.inverted_index.get(variant, set())
@@ -259,7 +330,7 @@ class QuranLexicalRetriever:
         for passage_id in candidate_ids:
             score = self._score_document(
                 passage_id,
-                query_tokens,
+                query_terms,
             )
 
             if score <= 0:
@@ -267,14 +338,14 @@ class QuranLexicalRetriever:
 
             passage = self.repository.get_required(passage_id)
 
-            evidence = EvidenceBuilder.from_passage(
-                passage,
-                score=score,
-                source_title="Tanzil Quran Text — Uthmani",
-                provenance_id="provenance.islam.quran.arabic",
+            scored.append(
+                EvidenceBuilder.from_passage(
+                    passage,
+                    score=score,
+                    source_title="Tanzil Quran Text — Uthmani",
+                    provenance_id="provenance.islam.quran.arabic",
+                )
             )
-
-            scored.append(evidence)
 
         scored.sort(
             key=lambda result: (
